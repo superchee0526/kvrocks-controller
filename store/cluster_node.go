@@ -49,7 +49,10 @@ const (
 	minIdleConns = 3
 )
 
-var _validator = validator.New()
+var (
+	_validator = validator.New()
+	clients    sync.Map
+)
 
 type Node interface {
 	ID() string
@@ -72,9 +75,6 @@ type Node interface {
 }
 
 type ClusterNode struct {
-	mu     sync.RWMutex
-	client *redis.Client
-
 	id        string
 	addr      string
 	role      string
@@ -141,15 +141,13 @@ func (n *ClusterNode) IsMaster() bool {
 }
 
 func (n *ClusterNode) GetClient() *redis.Client {
-	n.mu.RLock()
-	if n.client != nil {
-		n.mu.RUnlock()
-		return n.client
+	if client, ok := clients.Load(n.ID()); ok {
+		if rdsClient, ok := client.(*redis.Client); ok {
+			return rdsClient
+		}
 	}
-	n.mu.RUnlock()
 
-	n.mu.Lock()
-	n.client = redis.NewClient(&redis.Options{
+	client := redis.NewClient(&redis.Options{
 		Addr:         n.addr,
 		Password:     n.password,
 		DialTimeout:  dialTimeout,
@@ -158,8 +156,8 @@ func (n *ClusterNode) GetClient() *redis.Client {
 		MaxRetries:   -1, // don't retry inside the client
 		MinIdleConns: minIdleConns,
 	})
-	n.mu.Unlock()
-	return n.client
+	clients.Store(n.ID(), client)
+	return client
 }
 
 func (n *ClusterNode) CheckClusterMode(ctx context.Context) (int64, error) {
