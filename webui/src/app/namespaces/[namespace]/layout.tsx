@@ -16,22 +16,11 @@
  * specific language governing permissions and limitations
  * under the License. 
  */
-'use server';
 
-import { redirect } from "next/navigation";
-import { createNamespace, deleteNamespace } from "./api";
-import { revalidatePath } from "next/cache";
-
-export async function createNamespaceAction(name: string): Promise<string> {
-    const errMsg = await createNamespace(name);
-    if(!errMsg) {
-        revalidatePath('/cluster');
-    }
-    return errMsg;
-}
-
-export async function deleteNamespaceAction(name: string): Promise<string> {
-    const result = deleteNamespace(name);
-    revalidatePath('/cluster');
-    return result;
+export default function Layout({children}: {children: React.ReactNode}) {
+    return (
+        <>
+            {children}
+        </>
+    )
 }
