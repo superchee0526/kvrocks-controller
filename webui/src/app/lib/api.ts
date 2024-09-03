@@ -58,7 +58,7 @@ export async function deleteNamespace(name: string): Promise<string> {
         const { data: responseData } = await axios.delete(
             `${apiHost}/namespaces/${name}`
         );
-        if (responseData?.data == "ok") {
+        if (responseData.data == null) {
             return "";
         } else {
             return handleError(responseData);
@@ -125,7 +125,78 @@ export async function deleteCluster(
         const { data: responseData } = await axios.delete(
             `${apiHost}/namespaces/${namespace}/clusters/${cluster}`
         );
-        if (responseData?.data == "ok") {
+        if (responseData.data == null) {
+            return "";
+        } else {
+            return handleError(responseData);
+        }
+    } catch (error) {
+        return handleError(error);
+    }
+}
+
+export async function createShard(
+    namespace: string,
+    cluster: string,
+    nodes: string[],
+    password: string
+): Promise<string> {
+    try {
+        const { data: responseData } = await axios.post(
+            `${apiHost}/namespaces/${namespace}/clusters/${cluster}/shards`,
+            { nodes, password }
+        );
+        if (responseData?.data != undefined) {
+            return "";
+        } else {
+            return handleError(responseData);
+        }
+    } catch (error) {
+        return handleError(error);
+    }
+}
+
+export async function fetchShard(
+    namespace: string,
+    cluster: string,
+    shard: string
+): Promise<Object> {
+    try {
+        const { data: responseData } = await axios.get(
+            `${apiHost}/namespaces/${namespace}/clusters/${cluster}/shards/${shard}`
+        );
+        return responseData.data.shard;
+    } catch (error) {
+        handleError(error);
+        return {};
+    }
+}
+
+export async function listShards(
+    namespace: string,
+    cluster: string
+): Promise<Object[]> {
+    try {
+        const { data: responseData } = await axios.get(
+            `${apiHost}/namespaces/${namespace}/clusters/${cluster}/shards`
+        );
+        return responseData.data.shards || [];
+    } catch (error) {
+        handleError(error);
+        return [];
+    }
+}
+
+export async function deleteShard(
+    namespace: string,
+    cluster: string,
+    shard: string
+): Promise<string> {
+    try {
+        const { data: responseData } = await axios.delete(
+            `${apiHost}/namespaces/${namespace}/clusters/${cluster}/shards/${shard}`
+        );
+        if (responseData.data == null) {
             return "";
         } else {
             return handleError(responseData);
