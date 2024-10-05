@@ -135,6 +135,54 @@ export async function deleteCluster(
     }
 }
 
+export async function importCluster(
+    namespace: string,
+    cluster: string,
+    nodes: string[],
+    password: string
+): Promise<string> {
+    try {
+        const { data: responseData } = await axios.post(
+            `${apiHost}/namespaces/${namespace}/clusters/${cluster}/import`,
+            { nodes, password }
+        );
+        console.log("importCluster response", responseData);
+        if (responseData?.data != undefined) {
+            return "";
+        } else {
+            return handleError(responseData);
+        }
+    } catch (error) {
+        return handleError(error);
+    }
+}
+
+export async function migrateSlot(
+    namespace: string,
+    cluster: string,
+    target: number,
+    slot: number,
+    slotOnly: boolean
+): Promise<string> {
+    try {
+        const { data: responseData } = await axios.post(
+            `${apiHost}/namespaces/${namespace}/clusters/${cluster}/migrate`,
+            {
+                target: target,
+                slot: slot,
+                slot_only: slotOnly,
+            }
+        );
+        if (responseData?.data != undefined) {
+            return "";
+        } else {
+            return handleError(responseData);
+        }
+    } catch (error) {
+        return handleError(error);
+    }
+}
+
 export async function createShard(
     namespace: string,
     cluster: string,
@@ -202,6 +250,66 @@ export async function deleteShard(
             return handleError(responseData);
         }
     } catch (error) {
+        return handleError(error);
+    }
+}
+
+export async function createNode(
+    namespace: string,
+    cluster: string,
+    shard: string,
+    addr: string,
+    role: string,
+    password: string
+): Promise<string> {
+    try {
+        const { data: responseData } = await axios.post(
+            `${apiHost}/namespaces/${namespace}/clusters/${cluster}/shards/${shard}/nodes`,
+            { addr, role, password }
+        );
+        if (responseData?.data == null) {
+            return "";
+        } else {
+            return handleError(responseData);
+        }
+    } catch (error) {
+        return handleError(error);
+    }
+}
+
+export async function listNodes(
+    namespace: string,
+    cluster: string,
+    shard: string
+): Promise<Object[]> {
+    try {
+        const { data: responseData } = await axios.get(
+            `${apiHost}/namespaces/${namespace}/clusters/${cluster}/shards/${shard}/nodes`
+        );
+        return responseData.data.nodes || [];
+    } catch (error) {
+        handleError(error);
+        return [];
+    }
+}
+
+export async function deleteNode(
+    namespace: string,
+    cluster: string,
+    shard: string,
+    nodeId: string
+): Promise<string> {
+    try {
+        const { data: responseData } = await axios.delete(
+            `${apiHost}/namespaces/${namespace}/clusters/${cluster}/shards/${shard}/nodes/${nodeId}`
+        );
+        if (responseData.data == null) {
+            return "";
+        } else {
+            return handleError(responseData);
+        }
+    } catch (error) {
+        console.log(error);
         return handleError(error);
     }
 }

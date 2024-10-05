@@ -6,22 +6,28 @@
  * to you under the Apache License, Version 2.0 (the
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
- * 
+ *
  *   http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing,
  * software distributed under the License is distributed on an
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License. 
+ * under the License.
  */
 
 "use client";
 
 import { Card, Box } from "@mui/material";
 import React, { ReactNode } from "react";
-import { ClusterCreation, ShardCreation } from "./formCreation";
+import {
+    ClusterCreation,
+    ImportCluster,
+    MigrateSlot,
+    NodeCreation,
+    ShardCreation,
+} from "./formCreation";
 import { faCirclePlus } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 
@@ -35,7 +41,7 @@ export const CreateCard: React.FC<CreateCardProps> = ({ children }) => {
             <Card
                 variant="outlined"
                 sx={{
-                    width: "300px",
+                    width: "370px",
                     height: "200px",
                     padding: "16px",
                     margin: "16px",
@@ -71,8 +77,13 @@ export const AddClusterCard = ({ namespace }: { namespace: string }) => {
                     transition: "color 0.2s",
                 }}
             />
-            <div className="mt-4">
-                <ClusterCreation position="card" namespace={namespace} />
+            <div className="mt-4 flex flex-row items-end ">
+                <div className="mr-0.5">
+                    <ClusterCreation position="card" namespace={namespace} />
+                </div>
+                <div className="ml-.5">
+                    <ImportCluster position="card" namespace={namespace} />
+                </div>
             </div>
         </CreateCard>
     );
@@ -96,8 +107,53 @@ export const AddShardCard = ({
                     transition: "color 0.2s",
                 }}
             />
+            <div className="mt-4  flex flex-row items-end">
+                <div className="mr-0.5">
+                    <ShardCreation
+                        position="card"
+                        namespace={namespace}
+                        cluster={cluster}
+                    />
+                </div>
+                <div className="ml-.5">
+                    <MigrateSlot
+                        position="card"
+                        namespace={namespace}
+                        cluster={cluster}
+                    />
+                </div>
+            </div>
+        </CreateCard>
+    );
+};
+
+export const AddNodeCard = ({
+    namespace,
+    cluster,
+    shard,
+}: {
+  namespace: string;
+  cluster: string;
+  shard: string;
+}) => {
+    return (
+        <CreateCard>
+            <FontAwesomeIcon
+                icon={faCirclePlus}
+                size="4x"
+                style={{
+                    color: "#e0e0e0",
+                    marginBottom: "8px",
+                    transition: "color 0.2s",
+                }}
+            />
             <div className="mt-4">
-                <ShardCreation position="card" namespace={namespace} cluster={cluster} />
+                <NodeCreation
+                    position="card"
+                    namespace={namespace}
+                    cluster={cluster}
+                    shard={shard}
+                />
             </div>
         </CreateCard>
     );
