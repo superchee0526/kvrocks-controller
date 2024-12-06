@@ -24,8 +24,8 @@ import (
 )
 
 type Entry struct {
-	Key   string
-	Value []byte
+	Key   string `json:"key"`
+	Value []byte `json:"value"`
 }
 
 type Engine interface {
