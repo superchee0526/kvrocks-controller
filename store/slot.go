@@ -22,9 +22,12 @@ package store
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/apache/kvrocks-controller/consts"
 )
 
 const (
@@ -35,15 +38,15 @@ const (
 var ErrSlotOutOfRange = errors.New("slot id was out of range, should be between 0 and 16383")
 
 type SlotRange struct {
-	Start int `json:"start"`
-	Stop  int `json:"stop"`
+	Start int `json:"start"` // inclusive
+	Stop  int `json:"stop"`  // inclusive
 }
 
 type SlotRanges []SlotRange
 
 func NewSlotRange(start, stop int) (*SlotRange, error) {
 	if start > stop {
-		return nil, errors.New("start was larger than Shutdown")
+		return nil, errors.New("start was larger than stop")
 	}
 	if (start < MinSlotID || start > MaxSlotID) ||
 		(stop < MinSlotID || stop > MaxSlotID) {
@@ -55,8 +58,21 @@ func NewSlotRange(start, stop int) (*SlotRange, error) {
 	}, nil
 }
 
+func (slotRange *SlotRange) Equal(that *SlotRange) bool {
+	if that == nil {
+		return false
+	}
+	if slotRange.Start != that.Start {
+		return false
+	}
+	if slotRange.Stop != that.Stop {
+		return false
+	}
+	return true
+}
+
 func (slotRange *SlotRange) HasOverlap(that *SlotRange) bool {
-	return !(slotRange.Stop < that.Start || slotRange.Start > that.Stop)
+	return slotRange.Stop >= that.Start && slotRange.Start <= that.Stop
 }
 
 func (slotRange *SlotRange) Contains(slot int) bool {
@@ -88,6 +104,11 @@ func (slotRange *SlotRange) UnmarshalJSON(data []byte) error {
 }
 
 func ParseSlotRange(s string) (*SlotRange, error) {
+	numberOfRanges := strings.Count(s, "-")
+	if numberOfRanges > 1 {
+		return nil, fmt.Errorf("%w, cannot have more than one range", consts.ErrInvalidArgument)
+	}
+
 	index := strings.IndexByte(s, '-')
 	if index == -1 {
 		start, err := strconv.Atoi(s)
@@ -112,7 +133,7 @@ func ParseSlotRange(s string) (*SlotRange, error) {
 		return nil, err
 	}
 	if start > stop {
-		return nil, errors.New("start slot id greater than Shutdown slot id")
+		return nil, errors.New("start slot id greater than stop slot id")
 	}
 	if (start < MinSlotID || start > MaxSlotID) ||
 		(stop < MinSlotID || stop > MaxSlotID) {
@@ -133,87 +154,89 @@ func (SlotRanges *SlotRanges) Contains(slot int) bool {
 	return false
 }
 
-func AddSlotToSlotRanges(source SlotRanges, slot int) SlotRanges {
-	sort.Slice(source, func(i, j int) bool {
-		return source[i].Start < source[j].Start
-	})
-	if len(source) == 0 {
-		return append(source, SlotRange{Start: slot, Stop: slot})
-	}
-	if source[0].Start-1 > slot {
-		return append([]SlotRange{{Start: slot, Stop: slot}}, source...)
-	}
-	if source[len(source)-1].Stop+1 < slot {
-		return append(source, SlotRange{Start: slot, Stop: slot})
-	}
-
-	// first run is to find the fittest slot range and create a new one if necessary
-	for i, slotRange := range source {
-		if slotRange.Contains(slot) {
-			return source
-		}
-		// check next slot range, it won't be the last one since we have checked it before
-		if slotRange.Stop+1 < slot {
-			continue
-		}
-		if slotRange.Start == slot+1 {
-			source[i].Start = slot
-		} else if slotRange.Stop == slot-1 {
-			source[i].Stop = slot
-		} else if slotRange.Start > slot {
-			// no suitable slot range, create a new one before the current slot range
-			tmp := make(SlotRanges, len(source)+1)
-			copy(tmp, source[0:i])
-			tmp[i] = SlotRange{Start: slot, Stop: slot}
-			copy(tmp[i+1:], source[i:])
-			source = tmp
-		} else {
-			// should not reach here
-			panic("should not reach here")
-		}
-		break
-	}
-	// merge the slot ranges if necessary
-	for i := 0; i < len(source)-1; i++ {
-		if source[i].Stop+1 == source[i+1].Start {
-			source[i].Stop = source[i+1].Stop
-			if i+1 == len(source)-1 {
-				// remove the last slot range
-				source = source[:i+1]
-			} else {
-				source = append(source[:i+1], source[i+2:]...)
-			}
+func (SlotRanges *SlotRanges) HasOverlap(slotRange SlotRange) bool {
+	for _, slotRange := range *SlotRanges {
+		if slotRange.HasOverlap(&slotRange) {
+			return true
 		}
 	}
-	return source
+	return false
 }
 
-func RemoveSlotFromSlotRanges(source SlotRanges, slot int) SlotRanges {
+// CanMerge will return true if the given SlotRanges are adjacent with each other
+func CanMerge(a, b SlotRange) bool {
+	// Ensure a starts before b for easier comparison
+	if a.Start > b.Start {
+		a, b = b, a
+	}
+	// If the end of `a` is at least one less than the start of `b`, they can merge
+	return a.Stop+1 >= b.Start
+}
+
+func MergeSlotRanges(a SlotRange, b SlotRange) SlotRange {
+	return SlotRange{
+		Start: min(a.Start, b.Start),
+		Stop:  max(a.Stop, b.Stop),
+	}
+}
+
+// Implemented following leetcode solution:
+// https://leetcode.com/problems/merge-intervals/solutions/1805268/go-clean-code-with-explanation-and-visual-10ms-100
+func AddSlotToSlotRanges(source SlotRanges, slot SlotRange) SlotRanges {
+	if len(source) == 0 {
+		return append(source, slot)
+	}
+	source = append(source, slot)
 	sort.Slice(source, func(i, j int) bool {
 		return source[i].Start < source[j].Start
 	})
-	if !source.Contains(slot) {
-		return source
-	}
-	for i, slotRange := range source {
-		if slotRange.Contains(slot) {
-			if slotRange.Start == slot && slotRange.Stop == slot {
-				source = append(source[0:i], source[i+1:]...)
-			} else if slotRange.Start == slot {
-				source[i].Start = slot + 1
-			} else if slotRange.Stop == slot {
-				source[i].Stop = slot - 1
-			} else {
-				tmp := make(SlotRanges, len(source)+1)
-				copy(tmp, source[0:i])
-				tmp[i] = SlotRange{Start: slotRange.Start, Stop: slot - 1}
-				tmp[i+1] = SlotRange{Start: slot + 1, Stop: slotRange.Stop}
-				copy(tmp[i+2:], source[i+1:])
-				source = tmp
-			}
+
+	mergedSlotRanges := make([]SlotRange, 0, len(source))
+	mergedSlotRanges = append(mergedSlotRanges, source[0])
+
+	for _, interval := range source[1:] {
+		lastIntervalPos := len(mergedSlotRanges) - 1
+		lastInterval := mergedSlotRanges[lastIntervalPos]
+		if CanMerge(lastInterval, interval) {
+			mergedSlotRanges[lastIntervalPos] = MergeSlotRanges(interval, lastInterval)
+		} else {
+			mergedSlotRanges = append(mergedSlotRanges, interval)
 		}
 	}
-	return source
+
+	return mergedSlotRanges
+}
+
+func RemoveSlotFromSlotRanges(source SlotRanges, slot SlotRange) SlotRanges {
+	sort.Slice(source, func(i, j int) bool {
+		return source[i].Start < source[j].Start
+	})
+	if !source.HasOverlap(slot) {
+		return source
+	}
+
+	result := make([]SlotRange, 0, len(source))
+	for _, slotRange := range source {
+		// if no overlap, keep original range
+		if !slotRange.HasOverlap(&slot) {
+			result = append(result, slotRange)
+			continue
+		}
+		// if overlap, then we need to create a new left and right range
+		if slotRange.Start < slot.Start {
+			result = append(result, SlotRange{
+				Start: slotRange.Start,
+				Stop:  slot.Start - 1,
+			})
+		}
+		if slotRange.Stop > slot.Stop {
+			result = append(result, SlotRange{
+				Start: slot.Stop + 1,
+				Stop:  slotRange.Stop,
+			})
+		}
+	}
+	return result
 }
 
 func CalculateSlotRanges(n int) SlotRanges {

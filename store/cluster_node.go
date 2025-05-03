@@ -68,7 +68,7 @@ type Node interface {
 	GetClusterInfo(ctx context.Context) (*ClusterInfo, error)
 	SyncClusterInfo(ctx context.Context, cluster *Cluster) error
 	CheckClusterMode(ctx context.Context) (int64, error)
-	MigrateSlot(ctx context.Context, slot int, NodeID string) error
+	MigrateSlot(ctx context.Context, slot SlotRange, NodeID string) error
 
 	MarshalJSON() ([]byte, error)
 	UnmarshalJSON(data []byte) error
@@ -85,9 +85,9 @@ type ClusterNode struct {
 }
 
 type ClusterInfo struct {
-	CurrentEpoch   int64  `json:"cluster_current_epoch"`
-	MigratingSlot  int    `json:"migrating_slot"`
-	MigratingState string `json:"migrating_state"`
+	CurrentEpoch   int64      `json:"cluster_current_epoch"`
+	MigratingSlot  *SlotRange `json:"migrating_slot"`
+	MigratingState string     `json:"migrating_state"`
 }
 
 type ClusterNodeInfo struct {
@@ -195,7 +195,7 @@ func (n *ClusterNode) GetClusterInfo(ctx context.Context) (*ClusterInfo, error) 
 			}
 		case "migrating_slot", "migrating_slot(s)":
 			// TODO(@git-hulk): handle multiple migrating slots
-			clusterInfo.MigratingSlot, err = strconv.Atoi(fields[1])
+			clusterInfo.MigratingSlot, err = ParseSlotRange(fields[1])
 			if err != nil {
 				return nil, err
 			}
@@ -257,8 +257,8 @@ func (n *ClusterNode) Reset(ctx context.Context) error {
 	return n.GetClient().ClusterResetHard(ctx).Err()
 }
 
-func (n *ClusterNode) MigrateSlot(ctx context.Context, slot int, targetNodeID string) error {
-	return n.GetClient().Do(ctx, "CLUSTERX", "MIGRATE", slot, targetNodeID).Err()
+func (n *ClusterNode) MigrateSlot(ctx context.Context, slot SlotRange, targetNodeID string) error {
+	return n.GetClient().Do(ctx, "CLUSTERX", "MIGRATE", slot.String(), targetNodeID).Err()
 }
 
 func (n *ClusterNode) MarshalJSON() ([]byte, error) {

@@ -132,7 +132,8 @@ func (cluster *Cluster) RemoveNode(shardIndex int, nodeID string) error {
 }
 
 func (cluster *Cluster) PromoteNewMaster(ctx context.Context,
-	shardIdx int, masterNodeID, preferredNodeID string) (string, error) {
+	shardIdx int, masterNodeID, preferredNodeID string,
+) (string, error) {
 	shard, err := cluster.GetShard(shardIdx)
 	if err != nil {
 		return "", err
@@ -175,17 +176,16 @@ func (cluster *Cluster) Reset(ctx context.Context) error {
 	return nil
 }
 
-func (cluster *Cluster) findShardIndexBySlot(slot int) (int, error) {
-	if slot < 0 || slot > MaxSlotID {
-		return -1, consts.ErrSlotOutOfRange
-	}
+func (cluster *Cluster) findShardIndexBySlot(slot SlotRange) (int, error) {
 	sourceShardIdx := -1
 	for i := 0; i < len(cluster.Shards); i++ {
 		slotRanges := cluster.Shards[i].SlotRanges
 		for _, slotRange := range slotRanges {
-			if slotRange.Contains(slot) {
+			if slotRange.HasOverlap(&slot) {
+				if sourceShardIdx != -1 {
+					return sourceShardIdx, consts.ErrSlotRangeBelongsToMultipleShards
+				}
 				sourceShardIdx = i
-				break
 			}
 		}
 	}
@@ -195,7 +195,7 @@ func (cluster *Cluster) findShardIndexBySlot(slot int) (int, error) {
 	return sourceShardIdx, nil
 }
 
-func (cluster *Cluster) MigrateSlot(ctx context.Context, slot int, targetShardIdx int, slotOnly bool) error {
+func (cluster *Cluster) MigrateSlot(ctx context.Context, slot SlotRange, targetShardIdx int, slotOnly bool) error {
 	if targetShardIdx < 0 || targetShardIdx >= len(cluster.Shards) {
 		return consts.ErrIndexOutOfRange
 	}
@@ -226,7 +226,7 @@ func (cluster *Cluster) MigrateSlot(ctx context.Context, slot int, targetShardId
 	}
 
 	// Will start the data migration in the background
-	cluster.Shards[sourceShardIdx].MigratingSlot = slot
+	cluster.Shards[sourceShardIdx].MigratingSlot = &slot
 	cluster.Shards[sourceShardIdx].TargetShardIndex = targetShardIdx
 	return nil
 }
