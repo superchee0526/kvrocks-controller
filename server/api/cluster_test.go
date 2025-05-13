@@ -131,7 +131,7 @@ func TestClusterBasics(t *testing.T) {
 		slotRange, err := store.NewSlotRange(3, 3)
 		require.NoError(t, err)
 		testMigrateReq := &MigrateSlotRequest{
-			Slot:     *slotRange,
+			Slot:     slotRange,
 			SlotOnly: true,
 			Target:   1,
 		}
@@ -271,7 +271,7 @@ func TestClusterMigrateData(t *testing.T) {
 			currentVersion := gotCluster.Version.Load()
 			sourceSlotRanges := gotCluster.Shards[0].SlotRanges
 			targetSlotRanges := gotCluster.Shards[1].SlotRanges
-			require.EqualValues(t, slotRange, *gotCluster.Shards[0].MigratingSlot)
+			require.EqualValues(t, slotRange, gotCluster.Shards[0].MigratingSlot.SlotRange)
 			require.EqualValues(t, 1, gotCluster.Shards[0].TargetShardIndex)
 
 			// Run the controller to check and update the migration status

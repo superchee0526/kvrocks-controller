@@ -44,24 +44,26 @@ type SlotRange struct {
 
 type SlotRanges []SlotRange
 
-func NewSlotRange(start, stop int) (*SlotRange, error) {
+type MigratingSlot struct {
+	SlotRange
+	IsMigrating bool
+}
+
+func NewSlotRange(start, stop int) (SlotRange, error) {
 	if start > stop {
-		return nil, errors.New("start was larger than stop")
+		return SlotRange{}, errors.New("start was larger than stop")
 	}
 	if (start < MinSlotID || start > MaxSlotID) ||
 		(stop < MinSlotID || stop > MaxSlotID) {
-		return nil, ErrSlotOutOfRange
+		return SlotRange{}, ErrSlotOutOfRange
 	}
-	return &SlotRange{
+	return SlotRange{
 		Start: start,
 		Stop:  stop,
 	}, nil
 }
 
-func (slotRange *SlotRange) Equal(that *SlotRange) bool {
-	if that == nil {
-		return false
-	}
+func (slotRange *SlotRange) Equal(that SlotRange) bool {
 	if slotRange.Start != that.Start {
 		return false
 	}
@@ -71,7 +73,7 @@ func (slotRange *SlotRange) Equal(that *SlotRange) bool {
 	return true
 }
 
-func (slotRange *SlotRange) HasOverlap(that *SlotRange) bool {
+func (slotRange *SlotRange) HasOverlap(that SlotRange) bool {
 	return slotRange.Stop >= that.Start && slotRange.Start <= that.Stop
 }
 
@@ -156,11 +158,82 @@ func (SlotRanges *SlotRanges) Contains(slot int) bool {
 
 func (SlotRanges *SlotRanges) HasOverlap(slotRange SlotRange) bool {
 	for _, slotRange := range *SlotRanges {
-		if slotRange.HasOverlap(&slotRange) {
+		if slotRange.HasOverlap(slotRange) {
 			return true
 		}
 	}
 	return false
+}
+
+func (s *SlotRange) Reset() {
+	s.Start = 0
+	s.Stop = 0
+}
+
+// FromSlotRange will return a MigratingSlot with the IsMigrating field set to true.
+// IsMigrating field would probably only be set to false from an unmarshal, like when
+// reading from the topology string
+func FromSlotRange(slotRange SlotRange) *MigratingSlot {
+	return &MigratingSlot{
+		SlotRange:   slotRange,
+		IsMigrating: true,
+	}
+}
+
+func (s *MigratingSlot) UnmarshalJSON(data []byte) error {
+	var slotsString any
+	if err := json.Unmarshal(data, &slotsString); err != nil {
+		return err
+	}
+	switch t := slotsString.(type) {
+	case string:
+		slotRange := SlotRange{}
+		err := json.Unmarshal(data, &slotRange)
+		if err != nil {
+			s.Reset()
+			return err
+		}
+		s.SlotRange = slotRange
+		s.IsMigrating = true
+	case float64:
+		// We use integer to represent the slot because we don't support the slot range
+		// in the past. So we need to support the integer type for backward compatibility.
+		// But the number in JSON is float64, so we need to convert it to int here.
+		if t == NotMigratingInt {
+			s.Reset()
+			return nil
+		}
+		if t < MinSlotID || t > MaxSlotID {
+			s.Reset()
+			return ErrSlotOutOfRange
+		}
+		slotID := int(t)
+		s.Start = slotID
+		s.Stop = slotID
+		s.IsMigrating = true
+	default:
+		s.Reset()
+		return fmt.Errorf("invalid slot range type: %T", slotsString)
+	}
+	return nil
+}
+
+func (s *MigratingSlot) MarshalJSON() ([]byte, error) {
+	if !s.IsMigrating {
+		// backwards compatibility. When we read from an old cluster that had `-1`
+		// denoting !isMigrating. The MigratingSlot field will not be nil. So when
+		// this field is marshal'd back into JSON format, we can keep it as it was
+		// which was `-1`.
+		// The only case this turns back to null is if a migration happens on this
+		// shard, and the function `ClearMigrateState()` is called on the shard.
+		return json.Marshal(NotMigratingInt)
+	}
+	return json.Marshal(s.String())
+}
+
+func (s *MigratingSlot) Reset() {
+	s.SlotRange.Reset()
+	s.IsMigrating = false
 }
 
 // CanMerge will return true if the given SlotRanges are adjacent with each other
@@ -218,7 +291,7 @@ func RemoveSlotFromSlotRanges(source SlotRanges, slot SlotRange) SlotRanges {
 	result := make([]SlotRange, 0, len(source))
 	for _, slotRange := range source {
 		// if no overlap, keep original range
-		if !slotRange.HasOverlap(&slot) {
+		if !slotRange.HasOverlap(slot) {
 			result = append(result, slotRange)
 			continue
 		}
