@@ -22,7 +22,9 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 
@@ -45,7 +47,14 @@ type CreateClusterRequest struct {
 }
 
 type ClusterHandler struct {
-	s store.Store
+	s     store.Store
+	locks sync.Map
+}
+
+func (handler *ClusterHandler) getLock(ns, cluster string) *sync.RWMutex {
+	value, _ := handler.locks.LoadOrStore(fmt.Sprintf("%s/%s", ns, cluster), &sync.RWMutex{})
+	lock, _ := value.(*sync.RWMutex)
+	return lock
 }
 
 func (handler *ClusterHandler) List(c *gin.Context) {
@@ -119,7 +128,18 @@ func (handler *ClusterHandler) Remove(c *gin.Context) {
 
 func (handler *ClusterHandler) MigrateSlot(c *gin.Context) {
 	namespace := c.Param("namespace")
-	cluster, _ := c.MustGet(consts.ContextKeyCluster).(*store.Cluster)
+	clusterName := c.Param("cluster")
+
+	lock := handler.getLock(namespace, clusterName)
+	lock.Lock()
+	defer lock.Unlock()
+
+	s, _ := c.MustGet(consts.ContextKeyStore).(*store.ClusterStore)
+	cluster, err := s.GetCluster(c, namespace, clusterName)
+	if err != nil {
+		helper.ResponseError(c, err)
+		return
+	}
 
 	var req MigrateSlotRequest
 	if err := c.BindJSON(&req); err != nil {
@@ -127,7 +147,7 @@ func (handler *ClusterHandler) MigrateSlot(c *gin.Context) {
 		return
 	}
 
-	err := cluster.MigrateSlot(c, req.Slot, req.Target, req.SlotOnly)
+	err = cluster.MigrateSlot(c, req.Slot, req.Target, req.SlotOnly)
 	if err != nil {
 		helper.ResponseError(c, err)
 		return
