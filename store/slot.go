@@ -49,6 +49,13 @@ type MigratingSlot struct {
 	IsMigrating bool
 }
 
+func (migratingSlot *MigratingSlot) String() string {
+	if migratingSlot == nil {
+		return ""
+	}
+	return migratingSlot.SlotRange.String()
+}
+
 func NewSlotRange(start, stop int) (SlotRange, error) {
 	if start > stop {
 		return SlotRange{}, errors.New("start was larger than stop")
