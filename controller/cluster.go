@@ -28,6 +28,9 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/apache/kvrocks-controller/config"
+	"github.com/apache/kvrocks-controller/controller/failover"
+	"github.com/apache/kvrocks-controller/controller/failover/decider"
 	"github.com/apache/kvrocks-controller/logger"
 	"github.com/apache/kvrocks-controller/store"
 )
@@ -43,13 +46,15 @@ type ClusterCheckOptions struct {
 }
 
 type ClusterChecker struct {
-	options      ClusterCheckOptions
-	clusterStore store.Store
-	clusterMu    sync.Mutex
-	cluster      *store.Cluster
+	options       ClusterCheckOptions
+	clusterStore  store.Store
+	clusterMu     sync.Mutex
+	cluster       *store.Cluster
+	controllerCfg *config.ControllerConfig
 
 	namespace   string
 	clusterName string
+	clusterKey  string
 
 	failureMu     sync.Mutex
 	failureCounts map[string]int64
@@ -59,6 +64,9 @@ type ClusterChecker struct {
 	cancelFn context.CancelFunc
 
 	wg sync.WaitGroup
+
+	multiDetectEnabled bool
+	multiDetectReader  decider.RecordReader
 }
 
 func NewClusterChecker(s store.Store, ns, cluster string) *ClusterChecker {
@@ -66,6 +74,7 @@ func NewClusterChecker(s store.Store, ns, cluster string) *ClusterChecker {
 	c := &ClusterChecker{
 		namespace:   ns,
 		clusterName: cluster,
+		clusterKey:  ns + "/" + cluster,
 
 		clusterStore: s,
 		options: ClusterCheckOptions{
@@ -100,6 +109,25 @@ func (c *ClusterChecker) WithMaxFailureCount(count int64) *ClusterChecker {
 	c.options.maxFailureCount = count
 	if c.options.maxFailureCount < 1 {
 		c.options.maxFailureCount = 5
+	}
+	return c
+}
+
+func (c *ClusterChecker) WithControllerConfig(cfg *config.ControllerConfig) *ClusterChecker {
+	c.controllerCfg = cfg
+	if cfg != nil {
+		c.multiDetectEnabled = cfg.MultiDetect != nil && cfg.MultiDetect.Enabled
+	}
+	return c
+}
+
+func (c *ClusterChecker) WithMultiDetect(reader decider.RecordReader) *ClusterChecker {
+	if reader != nil && c.controllerCfg != nil && c.controllerCfg.MultiDetect != nil && c.controllerCfg.MultiDetect.Enabled {
+		c.multiDetectEnabled = true
+		c.multiDetectReader = reader
+	} else {
+		c.multiDetectEnabled = false
+		c.multiDetectReader = nil
 	}
 	return c
 }
@@ -144,7 +172,35 @@ func (c *ClusterChecker) increaseFailureCount(shardIndex int, node store.Node) i
 	if count%c.options.maxFailureCount == 0 {
 		cluster, err := c.clusterStore.GetCluster(c.ctx, c.namespace, c.clusterName)
 		if err != nil {
-			log.Error("Failed to get the clusterName info", zap.Error(err))
+			log.Error("Failed to get the cluster info", zap.Error(err))
+			return count
+		}
+		if c.multiDetectEnabled && c.multiDetectReader != nil {
+			decision := decider.JudgeNodeStateQuorum(c.multiDetectReader, c.clusterKey, node.ID(), c.options.maxFailureCount)
+			if decision != decider.DownByQuorum {
+				log.With(zap.String("decision", string(decision))).Debug("Quorum evaluation skipped failover")
+				return count
+			}
+			shard, err := cluster.GetShard(shardIndex)
+			if err != nil {
+				log.Error("Failed to get shard for quorum promotion", zap.Error(err))
+				return count
+			}
+			newMasterPreferred, err := failover.ChoosePromotionTargetWithQuorum(c.ctx, c.multiDetectReader, shard, c.namespace, c.clusterName, c.controllerCfg)
+			if err != nil {
+				log.Error("No quorum-safe promotion candidate", zap.Error(err))
+				return count
+			}
+			newMasterID, err := cluster.PromoteNewMaster(c.ctx, shardIndex, node.ID(), newMasterPreferred)
+			if err == nil {
+				c.resetFailureCount(newMasterID)
+				err = c.clusterStore.UpdateCluster(c.ctx, c.namespace, cluster)
+			}
+			if err != nil {
+				log.Error("Failed to promote the new master via quorum", zap.Error(err))
+			} else {
+				log.With(zap.String("new_master_id", newMasterID)).Info("Promote the new master using quorum consensus")
+			}
 			return count
 		}
 		newMasterID, err := cluster.PromoteNewMaster(c.ctx, shardIndex, node.ID(), "")

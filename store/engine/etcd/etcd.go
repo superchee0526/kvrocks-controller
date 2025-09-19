@@ -185,6 +185,19 @@ func (e *Etcd) Set(ctx context.Context, key string, value []byte) error {
 	return err
 }
 
+func (e *Etcd) SetWithTTL(ctx context.Context, key string, value []byte, ttlSeconds int64) error {
+	if ttlSeconds <= 0 {
+		return e.Set(ctx, key, value)
+	}
+	lease := clientv3.NewLease(e.client)
+	leaseResp, err := lease.Grant(ctx, ttlSeconds)
+	if err != nil {
+		return err
+	}
+	_, err = e.kv.Put(ctx, key, string(value), clientv3.WithLease(leaseResp.ID))
+	return err
+}
+
 func (e *Etcd) Delete(ctx context.Context, key string) error {
 	_, err := e.kv.Delete(ctx, key)
 	return err

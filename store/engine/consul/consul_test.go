@@ -21,6 +21,7 @@ package consul
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -28,7 +29,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const addr = "127.0.0.1:8500"
+var addr = func() string {
+	if v := os.Getenv("KVROCKS_CONSUL_ADDR"); v != "" {
+		return v
+	}
+	return "127.0.0.1:8500"
+}()
 
 func TestBasicOperations(t *testing.T) {
 	id := util.RandString(40)

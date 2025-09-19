@@ -32,7 +32,30 @@ func TestDefaultControllerConfigSet(t *testing.T) {
 			PingIntervalSeconds: 3,
 			MaxPingCount:        5,
 		},
+		MultiDetect: &MultiDetectConfig{
+			Enabled:       false,
+			WindowPeriods: 3,
+			Quorum: QuorumConfig{
+				Mode:     QuorumModeMajority,
+				MinVotes: 0,
+			},
+			KeyPrefix:                defaultNamespacePrefix,
+			RequireQuorumOnPromotion: true,
+			AggregateIntervalMS:      500,
+		},
 	}
 
 	assert.Equal(t, expectedControllerConfig, cfg.Controller)
+}
+
+func TestMultiDetectConfigDefaultsAndValidation(t *testing.T) {
+	cfg := &MultiDetectConfig{}
+	cfg.fillDefaults()
+	assert.NoError(t, cfg.Validate())
+	assert.Equal(t, 3, cfg.WindowPeriods)
+	assert.Equal(t, QuorumModeMajority, cfg.Quorum.Mode)
+	assert.Equal(t, 0, cfg.Quorum.MinVotes)
+	assert.Equal(t, defaultNamespacePrefix, cfg.KeyPrefix)
+	assert.Equal(t, 500, cfg.AggregateIntervalMS)
+	assert.True(t, cfg.RequireQuorumOnPromotion)
 }

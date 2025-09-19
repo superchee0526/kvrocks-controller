@@ -40,3 +40,6 @@ cmd/server/kvrocks_controller
 .kc_cli_history
 .vscode/
 vendor
+
+# gocache
+.gocache/

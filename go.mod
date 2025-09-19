@@ -20,9 +20,12 @@ require (
 	go.etcd.io/etcd/raft/v3 v3.5.21
 	go.etcd.io/etcd/server/v3 v3.5.21
 	go.uber.org/zap v1.27.0
+	golang.org/x/sync v0.12.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/yaml.v1 v1.0.0-20140924161607-9f9df34309c0
 )
+
+require github.com/kylelemons/godebug v1.1.0 // indirect
 
 require (
 	github.com/armon/go-metrics v0.4.1 // indirect

@@ -46,7 +46,8 @@ type FailOverConfig struct {
 }
 
 type ControllerConfig struct {
-	FailOver *FailOverConfig `yaml:"failover"`
+	FailOver    *FailOverConfig    `yaml:"failover"`
+	MultiDetect *MultiDetectConfig `yaml:"multi_detect"`
 }
 
 type LogConfig struct {
@@ -79,13 +80,28 @@ func DefaultFailOverConfig() *FailOverConfig {
 	}
 }
 
+func DefaultMultiDetectConfig() *MultiDetectConfig {
+	return &MultiDetectConfig{
+		Enabled:       false,
+		WindowPeriods: 3,
+		Quorum: QuorumConfig{
+			Mode:     QuorumModeMajority,
+			MinVotes: 0,
+		},
+		KeyPrefix:                defaultNamespacePrefix,
+		RequireQuorumOnPromotion: true,
+		AggregateIntervalMS:      500,
+	}
+}
+
 func Default() *Config {
 	c := &Config{
 		Etcd: &etcd.Config{
 			Addrs: []string{"127.0.0.1:2379"},
 		},
 		Controller: &ControllerConfig{
-			FailOver: DefaultFailOverConfig(),
+			FailOver:    DefaultFailOverConfig(),
+			MultiDetect: DefaultMultiDetectConfig(),
 		},
 	}
 	c.Addr = c.getAddr()
@@ -98,6 +114,14 @@ func (c *Config) Validate() error {
 	}
 	if c.Controller.FailOver.PingIntervalSeconds < 1 {
 		return errors.New("ping interval required >= 1s")
+	}
+	if c.Controller.MultiDetect == nil {
+		c.Controller.MultiDetect = DefaultMultiDetectConfig()
+	} else {
+		c.Controller.MultiDetect.fillDefaults()
+		if err := c.Controller.MultiDetect.Validate(); err != nil {
+			return err
+		}
 	}
 	hostPort := strings.Split(c.Addr, ":")
 	if hostPort[0] == "0.0.0.0" || hostPort[0] == "127.0.0.1" {

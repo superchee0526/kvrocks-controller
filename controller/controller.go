@@ -30,7 +30,10 @@ import (
 
 	"github.com/apache/kvrocks-controller/config"
 	"github.com/apache/kvrocks-controller/consts"
+	"github.com/apache/kvrocks-controller/controller/detect"
+	"github.com/apache/kvrocks-controller/controller/failover/aggregator"
 	"github.com/apache/kvrocks-controller/logger"
+	"github.com/apache/kvrocks-controller/metrics"
 	"github.com/apache/kvrocks-controller/store"
 )
 
@@ -47,6 +50,10 @@ type Controller struct {
 	mu       sync.Mutex
 	clusters map[string]*ClusterChecker
 
+	multiDetectEnabled bool
+	detector           *detect.Detector
+	aggregator         *aggregator.Aggregator
+
 	wg      sync.WaitGroup
 	state   atomic.Int32
 	readyCh chan struct{}
@@ -61,6 +68,16 @@ func New(s *store.ClusterStore, config *config.ControllerConfig) (*Controller, e
 		readyCh:      make(chan struct{}, 1),
 		closeCh:      make(chan struct{}),
 	}
+	if config.MultiDetect != nil && config.MultiDetect.Enabled {
+		c.multiDetectEnabled = true
+		detector := detect.NewDetector(s, config, s.ID())
+		agg := aggregator.New(s, config)
+		c.detector = detector
+		c.aggregator = agg
+		metrics.MultiDetectEnabledGauge.Set(1)
+	} else {
+		metrics.MultiDetectEnabledGauge.Set(0)
+	}
 	c.state.Store(stateInit)
 	return c, nil
 }
@@ -68,6 +85,12 @@ func New(s *store.ClusterStore, config *config.ControllerConfig) (*Controller, e
 func (c *Controller) Start(ctx context.Context) error {
 	if !c.state.CompareAndSwap(stateInit, stateRunning) {
 		return nil
+	}
+
+	if c.detector != nil {
+		if err := c.detector.StartAllClusters(ctx); err != nil {
+			return err
+		}
 	}
 
 	c.wg.Add(1)
@@ -89,6 +112,7 @@ func (c *Controller) suspend() {
 		delete(c.clusters, key)
 	}
 	c.mu.Unlock()
+	c.stopAggregator()
 }
 
 // resume starts the controller to process events
@@ -107,6 +131,7 @@ func (c *Controller) resume(ctx context.Context) error {
 			logger.Get().Debug("Resume the cluster", zap.String("namespace", ns), zap.String("cluster", cluster))
 		}
 	}
+	c.startAggregator(ctx)
 	return nil
 }
 
@@ -188,7 +213,11 @@ func (c *Controller) addCluster(namespace, clusterName string) {
 
 	cluster := NewClusterChecker(c.clusterStore, namespace, clusterName).
 		WithPingInterval(time.Duration(c.config.FailOver.PingIntervalSeconds) * time.Second).
-		WithMaxFailureCount(c.config.FailOver.MaxPingCount)
+		WithMaxFailureCount(c.config.FailOver.MaxPingCount).
+		WithControllerConfig(c.config)
+	if c.multiDetectEnabled && c.aggregator != nil {
+		cluster = cluster.WithMultiDetect(c.aggregator)
+	}
 	cluster.Start()
 
 	c.mu.Lock()
@@ -218,6 +247,20 @@ func (c *Controller) removeCluster(namespace, clusterName string) {
 	c.mu.Unlock()
 }
 
+func (c *Controller) startAggregator(ctx context.Context) {
+	if c.aggregator == nil {
+		return
+	}
+	c.aggregator.Start(ctx)
+}
+
+func (c *Controller) stopAggregator() {
+	if c.aggregator == nil {
+		return
+	}
+	c.aggregator.Stop()
+}
+
 func (c *Controller) updateCluster(namespace, clusterName string) {
 	key := c.buildClusterKey(namespace, clusterName)
 	c.mu.Lock()
@@ -242,4 +285,7 @@ func (c *Controller) Close() {
 	close(c.readyCh)
 	close(c.closeCh)
 	c.wg.Wait()
+	if c.detector != nil {
+		_ = c.detector.Stop(context.Background())
+	}
 }

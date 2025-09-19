@@ -64,6 +64,10 @@ func (m *Mock) Set(_ context.Context, key string, value []byte) error {
 	return nil
 }
 
+func (m *Mock) SetWithTTL(ctx context.Context, key string, value []byte, ttlSeconds int64) error {
+	return m.Set(ctx, key, value)
+}
+
 func (m *Mock) Delete(_ context.Context, key string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
