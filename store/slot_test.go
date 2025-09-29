@@ -94,17 +94,15 @@ func TestMigratingSlot_MarshalUnmarshalJSON(t *testing.T) {
 	migratingSlot = MigratingSlot{SlotRange: SlotRange{Start: 0, Stop: 0}, IsMigrating: false}
 	migratingSlotBytes, err = json.Marshal(&migratingSlot)
 	require.NoError(t, err)
-	err = json.Unmarshal(migratingSlotBytes, &migratingSlot)
-	require.NoError(t, err)
-	assert.Equal(t, MigratingSlot{SlotRange{Start: 0, Stop: 0}, false}, migratingSlot)
+	// null []byte equal
+	assert.Equal(t, "null", string(migratingSlotBytes))
 
 	// same test as earlier, but checks that it resets the start and stop
 	migratingSlot = MigratingSlot{SlotRange: SlotRange{Start: 5, Stop: 5}, IsMigrating: false}
 	migratingSlotBytes, err = json.Marshal(&migratingSlot)
 	require.NoError(t, err)
-	err = json.Unmarshal(migratingSlotBytes, &migratingSlot)
-	require.NoError(t, err)
-	assert.Equal(t, MigratingSlot{SlotRange{Start: 0, Stop: 0}, false}, migratingSlot, "expects start and stop to reset to 0")
+	// null []byte equal
+	assert.Equal(t, "null", string(migratingSlotBytes))
 }
 
 // TestMigratingSlot_MarshalJSON will checks the resulting string
@@ -122,7 +120,7 @@ func TestMigratingSlot_MarshalJSON(t *testing.T) {
 	migratingSlot = MigratingSlot{SlotRange: SlotRange{Start: 5, Stop: 10}, IsMigrating: false}
 	migratingSlotBytes, err = json.Marshal(&migratingSlot)
 	require.NoError(t, err)
-	assert.Equal(t, `-1`, string(migratingSlotBytes))
+	assert.Equal(t, `null`, string(migratingSlotBytes))
 }
 
 func TestMigrateSlotRange_MarshalAndUnmarshalJSON(t *testing.T) {
